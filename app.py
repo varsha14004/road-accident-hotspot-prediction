@@ -19,6 +19,12 @@ def load_data():
 df = load_data()
 model = joblib.load("accident_severity_model.pkl")
 
+# Safe numeric conversion
+def safe_median(column, default=0):
+    values = pd.to_numeric(df[column], errors="coerce")
+    result = values.median()
+    return float(result) if pd.notna(result) else default
+
 st.title("🚦 Road Accident Hotspot Analysis & Prediction")
 st.caption("Interactive Dashboard with AI-powered RAG Assistant")
 
@@ -26,7 +32,9 @@ st.caption("Interactive Dashboard with AI-powered RAG Assistant")
 st.sidebar.header("🔎 Dashboard Filters")
 
 def add_filter(label, column):
-    values = ["All"] + sorted(df[column].dropna().astype(str).unique().tolist())
+    values = ["All"] + sorted(
+        df[column].dropna().astype(str).unique().tolist()
+    )
     return st.sidebar.selectbox(label, values)
 
 selected_city = add_filter("City", "city")
@@ -61,10 +69,16 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Accidents", f"{len(filtered):,}")
 c2.metric("Total Cities", filtered["city"].nunique())
 c3.metric("Total States", filtered["state"].nunique())
-c4.metric("Total Casualties", f"{filtered['casualties'].sum():,}")
+
+total_casualties = pd.to_numeric(
+    filtered["casualties"], errors="coerce"
+).fillna(0).sum()
+
+c4.metric("Total Casualties", f"{total_casualties:,.0f}")
 
 if filtered.empty:
     st.warning("No accidents found for the selected filters.")
+
 else:
     # ---------------- HIGHEST STATE ----------------
     st.subheader("🏆 Highest Accident State")
@@ -75,17 +89,24 @@ else:
         highest_state = state_counts.idxmax()
         highest_count = int(state_counts.max())
 
-        st.metric("Highest State", highest_state,
-                  f"{highest_count:,} accidents")
+        st.metric(
+            "Highest Accident State",
+            highest_state,
+            f"{highest_count:,} accidents"
+        )
 
         chosen_state = st.selectbox(
-            "View a state's accident details",
-            ["Select a state"] + sorted(filtered["state"].dropna().unique().tolist())
+            "Select a state to view its details",
+            ["Select a state"] +
+            sorted(filtered["state"].dropna().unique().tolist())
         )
 
         if chosen_state != "Select a state":
-            state_data = filtered[filtered["state"] == chosen_state]
-            st.write(f"Accident details for **{chosen_state}**")
+            state_data = filtered[
+                filtered["state"] == chosen_state
+            ]
+
+            st.write(f"Accident details for {chosen_state}")
             st.dataframe(state_data, use_container_width=True)
 
     # ---------------- CHARTS ----------------
@@ -119,7 +140,16 @@ else:
 
     # ---------------- MAP ----------------
     st.subheader("📍 Accident Hotspot Map")
-    map_data = filtered[["latitude", "longitude"]].dropna()
+
+    map_data = filtered[["latitude", "longitude"]].copy()
+    map_data["latitude"] = pd.to_numeric(
+        map_data["latitude"], errors="coerce"
+    )
+    map_data["longitude"] = pd.to_numeric(
+        map_data["longitude"], errors="coerce"
+    )
+    map_data = map_data.dropna()
+
     if not map_data.empty:
         st.map(map_data)
     else:
@@ -138,51 +168,87 @@ feature_columns = [
 ]
 
 with st.form("prediction_form"):
+
     p1, p2, p3 = st.columns(3)
 
     with p1:
-        city = st.selectbox("City", sorted(df["city"].dropna().unique()))
-        state = st.selectbox("State", sorted(df["state"].dropna().unique()))
-        road_type = st.selectbox("Road Type", sorted(df["road_type"].dropna().unique()))
-        weather = st.selectbox("Weather", sorted(df["weather"].dropna().unique()))
-        traffic_density = st.selectbox(
-            "Traffic Density", sorted(df["traffic_density"].dropna().unique())
+        city = st.selectbox(
+            "City", sorted(df["city"].dropna().unique())
         )
-        cause = st.selectbox("Accident Cause", sorted(df["cause"].dropna().unique()))
-        festival = st.selectbox("Festival", sorted(df["festival"].dropna().unique()))
+        state = st.selectbox(
+            "State", sorted(df["state"].dropna().unique())
+        )
+        road_type = st.selectbox(
+            "Road Type", sorted(df["road_type"].dropna().unique())
+        )
+        weather = st.selectbox(
+            "Weather", sorted(df["weather"].dropna().unique())
+        )
+        traffic_density = st.selectbox(
+            "Traffic Density",
+            sorted(df["traffic_density"].dropna().unique())
+        )
+        cause = st.selectbox(
+            "Accident Cause", sorted(df["cause"].dropna().unique())
+        )
+        festival = st.selectbox(
+            "Festival", sorted(df["festival"].dropna().unique())
+        )
 
     with p2:
-        latitude = st.number_input("Latitude", value=float(df["latitude"].median()))
-        longitude = st.number_input("Longitude", value=float(df["longitude"].median()))
+        latitude = st.number_input(
+            "Latitude", value=safe_median("latitude")
+        )
+        longitude = st.number_input(
+            "Longitude", value=safe_median("longitude")
+        )
         hour = st.slider("Hour", 0, 23, 12)
+
         day_of_week = st.selectbox(
             "Day of Week", sorted(df["day_of_week"].dropna().unique())
         )
+
         is_weekend = st.selectbox("Weekend?", [0, 1])
-        lanes = st.number_input("Number of Lanes", min_value=1, value=2)
+
+        lanes = st.number_input(
+            "Number of Lanes", min_value=1, value=2
+        )
+
         traffic_signal = st.selectbox(
-            "Traffic Signal", sorted(df["traffic_signal"].dropna().unique())
+            "Traffic Signal",
+            sorted(df["traffic_signal"].dropna().unique())
         )
 
     with p3:
-        visibility = st.number_input(
-            "Visibility", value=float(df["visibility"].median())
+        visibility = st.selectbox(
+            "Visibility",
+            sorted(df["visibility"].dropna().unique())
         )
+
         temperature = st.number_input(
-            "Temperature", value=float(df["temperature"].median())
+            "Temperature", value=safe_median("temperature")
         )
+
         vehicles_involved = st.number_input(
             "Vehicles Involved", min_value=1, value=2
         )
-        casualties = st.number_input("Casualties", min_value=0, value=1)
-        is_peak_hour = st.selectbox("Peak Hour?", [0, 1])
-        risk_score = st.number_input(
-            "Risk Score", value=float(df["risk_score"].median())
+
+        casualties = st.number_input(
+            "Casualties", min_value=0, value=1
         )
 
-    predict_button = st.form_submit_button("Predict Accident Severity")
+        is_peak_hour = st.selectbox("Peak Hour?", [0, 1])
+
+        risk_score = st.number_input(
+            "Risk Score", value=safe_median("risk_score")
+        )
+
+    predict_button = st.form_submit_button(
+        "Predict Accident Severity"
+    )
 
 if predict_button:
+
     input_data = pd.DataFrame([{
         "city": city,
         "state": state,
@@ -208,7 +274,9 @@ if predict_button:
 
     try:
         prediction = model.predict(input_data)[0]
-        st.success(f"Predicted Accident Severity: **{prediction}**")
+        st.success(
+            f"Predicted Accident Severity: {prediction}"
+        )
     except Exception as e:
         st.error(f"Prediction error: {e}")
 
@@ -217,37 +285,58 @@ st.divider()
 st.subheader("🤖 RAG - AI Road Accident Assistant")
 st.write("Ask questions about the accident dataset.")
 
-question = st.chat_input("Ask about road accidents...")
+question = st.chat_input(
+    "Ask about road accidents..."
+)
 
 if question:
+
     st.chat_message("user").write(question)
 
     with st.chat_message("assistant"):
+
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
             client = genai.Client(api_key=api_key)
 
-            # Retrieve relevant dataset information
-            search_text = question.lower()
-            relevant = df[
-                df.astype(str).apply(
-                    lambda row: row.str.lower().str.contains(
-                        search_text, regex=False
-                    ).any(),
-                    axis=1
-                )
+            # Retrieve matching records using question keywords
+            keywords = [
+                word.strip("?,.!") for word in question.lower().split()
+                if len(word.strip("?,.!")) > 2
             ]
 
+            searchable = df.astype(str).apply(
+                lambda col: col.str.lower()
+            )
+
+            scores = pd.Series(0, index=df.index)
+
+            for keyword in keywords:
+                matches = searchable.apply(
+                    lambda col: col.str.contains(
+                        keyword, regex=False, na=False
+                    )
+                ).any(axis=1)
+
+                scores += matches.astype(int)
+
+            relevant = df.loc[scores > 0].copy()
+
             if relevant.empty:
-                relevant = df.sample(min(100, len(df)), random_state=42)
+                relevant = df.head(30)
 
             context = (
-                f"Dataset contains {len(df)} accident records.\n"
-                f"Relevant records:\n{relevant.head(30).to_string(index=False)}\n"
-                f"Overall severity counts:\n"
+                f"Dataset has {len(df)} accident records.\n"
+                f"Retrieved records:\n"
+                f"{relevant.head(30).to_string(index=False)}\n"
+                f"Severity counts:\n"
                 f"{df['accident_severity'].value_counts().to_dict()}\n"
-                f"Overall state counts:\n"
-                f"{df['state'].value_counts().to_dict()}"
+                f"State counts:\n"
+                f"{df['state'].value_counts().to_dict()}\n"
+                f"City counts:\n"
+                f"{df['city'].value_counts().to_dict()}\n"
+                f"Weather counts:\n"
+                f"{df['weather'].value_counts().to_dict()}"
             )
 
             response = client.models.generate_content(
@@ -255,8 +344,8 @@ if question:
                 contents=(
                     "You are a road accident data assistant. "
                     "Answer using the supplied dataset context. "
-                    "Do not invent statistics. If the context does not "
-                    "contain the answer, clearly say the data is insufficient.\n\n"
+                    "Do not invent statistics. If the answer is not "
+                    "available, say the dataset does not provide it.\n\n"
                     f"DATA CONTEXT:\n{context}\n\n"
                     f"USER QUESTION: {question}"
                 )
